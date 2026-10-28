@@ -1,0 +1,12 @@
+XTerm*faceName: DejaVu Sans Mono
+XTerm*faceSize: 10
+XTerm*background: #14161b
+XTerm*foreground: #d8dbe0
+XTerm*cursorColor: #5fa8ff
+XTerm*internalBorder: 6
+XTerm*scrollBar: false
+XTerm*saveLines: 2000
+XTerm*geometry: 90x28
+XTerm*termName: xterm-256color
+XTerm*metaSendsEscape: true
+XTerm*selectToClipboard: true

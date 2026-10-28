@@ -1,0 +1,22 @@
+#!/bin/sh
+# Run apk maintainer scripts captured by tools/mkimage.py, in install order,
+# then package triggers with their (glob-expanded) trigger directories.
+
+cd /etc/dbvm/apk-scripts || exit 0
+
+for kind in pre-install post-install; do
+	for script in *."$kind"; do
+		[ -e "$script" ] || continue
+		echo "== $script"
+		sh "./$script" 0
+	done
+done
+
+while read -r script dirs; do
+	[ -n "$script" ] || continue
+	echo "== $script $dirs"
+	# shellcheck disable=SC2086 # dirs are globs, expansion is intended
+	sh "./$script" $dirs
+done < /etc/dbvm/triggers
+
+touch /etc/dbvm/firstboot.done

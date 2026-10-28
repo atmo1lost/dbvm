@@ -1,19 +1,19 @@
 #!/bin/sh
-# Fetches the stock v86 Buildroot kernel used for Phase 0 into public/images/.
+# Fetches the stock v86 Buildroot kernel into $DBVM_CACHE/images/ (served at /images).
 # BIOS files are committed under public/bios/ (copied from copy/v86, LGPL).
 set -eu
 
-cd "$(dirname "$0")/.."
-mkdir -p public/images
+IMAGES="${DBVM_CACHE:-$HOME/Library/Caches/dbvm}/images"
+mkdir -p "$IMAGES"
 
 fetch() {
     name="$1"
-    if [ -f "public/images/$name" ]; then
+    if [ -f "$IMAGES/$name" ]; then
         echo "have $name"
     else
         echo "fetching $name"
-        curl -fL --progress-bar -o "public/images/$name.part" "https://i.copy.sh/$name"
-        mv "public/images/$name.part" "public/images/$name"
+        curl -fL --progress-bar -o "$IMAGES/$name.part" "https://i.copy.sh/$name"
+        mv "$IMAGES/$name.part" "$IMAGES/$name"
     fi
 }
 

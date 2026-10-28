@@ -1,0 +1,6 @@
+auto lo
+iface lo inet loopback
+
+# v86's network backend answers DHCP itself (router 192.168.86.1, guest .100).
+auto eth0
+iface eth0 inet dhcp

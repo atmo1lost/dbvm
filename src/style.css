@@ -45,13 +45,17 @@ button:disabled { opacity: 0.4; cursor: default; }
 
 main {
   flex: 1;
+  min-height: 0;
   display: grid;
   place-items: center;
-  overflow: auto;
+  overflow: hidden;
   padding: 16px;
 }
 
-#screen { background: #000; line-height: 0; }
+/* Scale the guest display down to fit; v86 maps absolute mouse coordinates
+   through #screen's on-page box, so pointing stays accurate when scaled. */
+#screen { background: #000; line-height: 0; max-width: 100%; max-height: 100%; }
+#screen canvas { max-width: 100%; max-height: calc(100dvh - 90px); }
 
 #screen .text-screen {
   white-space: pre;
@@ -61,3 +65,16 @@ main {
 }
 
 #screen canvas { display: none; image-rendering: pixelated; }
+
+.muted { color: var(--muted); }
+
+.tabs { display: flex; gap: 2px; margin-right: 8px; }
+.tabs button { border-radius: 0; }
+.tabs button:first-child { border-radius: 6px 0 0 6px; }
+.tabs button:last-child { border-radius: 0 6px 6px 0; }
+.tabs button.active { background: var(--accent); color: #000; border-color: var(--accent); }
+
+#serial { width: min(100%, 960px); height: 100%; }
+[hidden] { display: none !important; }
+
+#screen.dropping { outline: 3px dashed var(--accent); outline-offset: 4px; }

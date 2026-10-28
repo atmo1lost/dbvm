@@ -1,0 +1,12 @@
+#!/sbin/openrc-run
+# Talks to the dbvm page over the second serial port: time sync, clipboard,
+# and rescans after files are dropped in from the host.
+
+description="dbvm guest agent"
+command=/usr/libexec/dbvm/agent
+command_background=true
+pidfile=/run/dbvm-agent.pid
+
+depend() {
+	after dbvm-firstboot
+}

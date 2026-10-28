@@ -8,6 +8,8 @@ export interface MachineEvents {
   progress: { file: string; loaded: number; total: number };
   "serial-out": string;
   "screen-size": { width: number; height: number; graphical: boolean };
+  /** One line received from the guest agent channel (without the newline). */
+  agent: string;
 }
 
 export interface Machine {
@@ -22,6 +24,12 @@ export interface Machine {
   restoreState(state: ArrayBuffer): Promise<void>;
 
   sendSerial(text: string): void;
+  /** Send one line to the guest agent. */
+  sendAgent(line: string): void;
+  /** Write a file into the guest filesystem (absolute guest path). */
+  createFile(path: string, data: Uint8Array): Promise<void>;
+  /** Press and release keys, given as PS/2 set 1 scancode sequences. */
+  sendScancodes(codes: number[]): void;
   goFullscreen(): void;
 
   on<K extends keyof MachineEvents>(event: K, fn: (value: MachineEvents[K]) => void): () => void;

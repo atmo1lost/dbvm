@@ -1,5 +1,7 @@
 node_modules/
 dist/
-refs/
-public/images/
+refs
 .DS_Store
+build/
+refs.nosync/
+__pycache__/

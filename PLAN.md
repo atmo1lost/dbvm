@@ -2,7 +2,7 @@
 
 Goal: open a URL, get a real Linux desktop (window manager, terminal, file manager, a few apps) running **entirely client-side** in the browser, with persistence, clipboard, and optional networking.
 
-Disk budget for this repo: **5 GB max** (refs + images + build outputs). Currently ~0.9 GB of reference clones.
+Disk budget for this repo: **5 GB max** (refs + images + build outputs). Currently ~1.4 GB (0.9 GB reference clones, 0.37 GB images and build cache in `~/Library/Caches/dbvm`).
 
 ---
 
@@ -18,7 +18,7 @@ Disk budget for this repo: **5 GB max** (refs + images + build outputs). Current
 | **WebVM / CheerpX** (`refs/emulators/webvm`) | Proprietary x86 JIT; WebVM already ships an Alpine+Xorg desktop. | **Reference only** — CheerpX can't be self-hosted or used by orgs without a commercial licence. Great UX benchmark. |
 | **Browsix** (`refs/emulators/browsix`) | Unix-in-JS processes. | Historical reference; no real desktop path. |
 
-**Decision:** build the MVP on v86 with a small 32-bit x86 Linux guest running X11 + a lightweight WM. Keep the guest/host interface abstract (`Machine` interface) so QEMU-Wasm can be swapped in later for 64-bit/SMP.
+**Decision:** build the MVP on v86 with a small 32-bit x86 Linux guest running X11 + a lightweight WM. Keep the guest/host interface abstract (`Machine` interface) so QEMU-Wasm can be added as a second backend for 64-bit/SMP. That's now planned (Phase 4) because Flatpak support (Phase 5) needs x86_64.
 
 ---
 
@@ -93,26 +93,66 @@ Off by default. Options, in order of effort:
 - [x] Use v86 from npm (`v86@0.5.472`); building from `refs/emulators/v86` deferred until we need to patch it.
 - [x] Boot the stock v86 Buildroot 6.8 kernel in our page. It boots to a shell in about 10 s, the 9p share mounts at `/mnt`, keyboard input works, and save/restore round-trips (51 MB state at 128 MB RAM, before zstd).
 
-### Phase 1 — Text-mode Linux (week 1)
-- [ ] Docker build for an Alpine i686 rootfs + kernel config.
-- [ ] Convert rootfs to v86 9p format (`tools/copy-to-sha256.py`, `fs2json.py` in v86).
-- [ ] Serial console in xterm.js; boot to shell.
+### Phase 1 — Text-mode Linux (week 1) ✅
+- [x] Docker-free Alpine 3.21 i686 image builder (`tools/mkimage.py`): minirootfs + packages unpacked into an in-memory tar, stock `linux-virt` kernel, custom busybox initramfs that loads the 9p modules and `switch_root`s onto `host9p`.
+- [x] Converted to v86 lazy 9p format (`tools/build-image.sh`, v86's `fs2json.py` + `copy-to-sha256.py`): 42 MB served.
+- [x] xterm.js serial console with autologin on ttyS0. A cold boot reaches the shell in about 15–20 s.
+- [x] Boot snapshot (`tools/build-state.mjs`): 19 MB zstd, so page load restores straight to a root shell. `?profile=alpine-cold` still does a full boot.
+- Build outputs live in `~/Library/Caches/dbvm` (outside iCloud) and are served by a Vite middleware at `/images`.
 
-### Phase 2 — Desktop MVP (week 2–3)
-- [ ] Xorg + JWM + xterm + file manager in the image; auto-login to X.
-- [ ] Canvas display with scaling; keyboard/mouse with pointer lock.
-- [ ] Save-state snapshot → instant boot.
+### Phase 2 — Desktop MVP (week 2–3) ✅ (except hosting)
+- [x] Xorg (`fbdev` driver on the `bochs-drm` framebuffer, 1024×768×24, shadow FB, no GL) + JWM + xterm + PCManFM + Mousepad + Dillo, eudev + libinput, dbus. Root autologin on tty1 runs `startx`. Guest config lives in `guest/overlay/`.
+- [x] Mesa and LLVM are excluded (~300 MB of software GL that v86 can't use), leaving 176 packages and 152 MB installed (85 MB served, loaded lazily).
+- [x] Deferred apk maintainer scripts and triggers (users/groups, GSettings schemas, icon/pixbuf/font caches) run once in the guest via the `dbvm-firstboot` OpenRC service.
+- [x] Canvas scales to fit the window. The absolute pointer works through v86's vmmouse emulation (kernel `psmouse` vmmouse + libinput), with no pointer lock and accurate mapping when scaled.
+- [x] Desktop snapshot: 43 MB zstd (133 MB raw). Page load restores straight to the running desktop, while a cold first boot reaches it in about 38 s.
 - [ ] Hosted static build (any static host with correct MIME + compression).
+- Known issue: instant bursts of more than ~10 keystrokes overflow the guest's evdev buffer (`SYN_DROPPED`) and drop keys. Human-speed typing is fine. Paste must go through the agent's clipboard, not simulated keys, or be paced.
 
-### Phase 3 — Feels like a real desktop (week 4–6)
-- [ ] Guest agent: clipboard, resize, file drop, time.
-- [ ] IndexedDB/OPFS overlay persistence + reset/export.
+**Direction from here:** the goal is a 64-bit guest that can install Flatpak apps. Flathub publishes only x86_64 and aarch64 builds, with nothing for 32-bit x86, so Flatpak *requires* the 64-bit backend. It also needs real networking (Flathub is HTTPS) and persistent, disk-backed storage, because runtimes are 0.3–1 GB each. Phases 3–5 build those in order. v86 stays as the fast, light 32-bit option.
+
+### Phase 3 — Networking, persistence, guest agent (Flatpak prerequisites) ✅
+- [x] **Networking:** our own minimal Wisp v1 relay (`server/wisp.ts`, MIT-clean instead of AGPL `wisp-server-node`) runs inside the Vite dev server at `/wisp/`. v86's wisp backend provides DHCP (guest `192.168.86.100`), DNS over HTTPS and NTP. The relay only carries TCP to **public IPv4**: loopback, private, link-local, CGNAT and multicast are refused, so the guest can't reach the Mac's own services or LAN. HTTPS from the guest works (Alpine CDN: HTTP 200 in 1.2 s). Disable with `?net=0`.
+- [x] **Guest agent** (`guest/overlay/usr/libexec/dbvm/agent`, line protocol on ttyS1 ⇄ `src/agent.ts`):
+  - time sync on start, every 60 s and when the tab becomes visible (the guest clock is within ~3 s of the host).
+  - clipboard both ways via `xclip`, byte-exact UTF-8. Guest→host polls every 2 s. Host→guest: Cmd+V (or Ctrl+Shift+V) is intercepted, the text is set as CLIPBOARD+PRIMARY, then Shift+Insert is sent, so long pastes don't drop keys.
+  - `rescan` after file drops.
+- [x] **File drop:** drop files on the screen and they're written into the 9p root at `~/Downloads`, visible to the guest immediately.
+- [x] **Sessions:** Save session / Reset / autosave (every 5 min and when the tab is hidden). A full machine snapshot, gzip'd into OPFS (≈43–45 MB, ~2 s). On load a matching session replaces the shipped snapshot; it resumes in ~0.4 s with files intact. Sessions are tied to the image build via `images/alpine/version`.
+  - Limitation: changed files still live in guest/tab RAM until saved, and the whole machine is rewritten on each save. That's fine for documents and settings but **not for Flatpak runtimes** (0.3–1 GB). Phase 5 needs a disk-backed 9p storage (v86 FileStorage on OPFS) or a block device on OPFS.
+- Deferred to *Later*: display resize, `~` export/import, snapshot shrinking, audio.
+
+### Phase 4 — 64-bit (QEMU-Wasm backend)
+- [x] **Benchmark (2026-10-28)**, one VM at a time, 1 vCPU each, same busybox `sh` loop (100,000 iterations), on the same Mac (10 cores):
+
+  | | QEMU-Wasm (ktock demo, x86_64, single-thread TCG) | v86 (dbvm, i686) |
+  |---|---|---|
+  | CPU loop | **15.2 s** | **3.6 s** (≈4.3× faster) |
+  | Boot | text-only login at ~43 s guest time (~85 s from page load incl. download) | full X desktop, cold, ~38 s; restored snapshot ~0.4 s |
+  | Host CPU while busy | ~2 cores | ~1 core |
+
+  Caveats: a single quick run each, and the demo is a generic build (ASYNCIFY, no tuning). Multi-threaded TCG with more vCPUs helps parallel work, not per-thread speed, and costs more host CPU.
+  **Verdict:** a 64-bit guest works, but it's about 4× slower than v86, which is already the slow part. Flatpak's GTK4/Qt6 apps on top of that would be very sluggish. Decision pending (see below).
+- [ ] Build QEMU-Wasm (`qemu-system-x86_64`, multi-threaded TCG, Emscripten) in **GitHub Actions**, not on the Mac: it needs Docker + Emscripten and several GB of space (see the 5 GB budget and iCloud notes).
+- [ ] `QemuMachine` implementing the existing `Machine` interface, selected per profile.
+- [ ] COOP/COEP headers (SharedArrayBuffer for threads) in Vite and later in hosting.
+- [ ] x86_64 guest: `tools/mkimage.py` with `ARCH=x86_64` (same package list and overlay). The display driver depends on QEMU's emulated GPU (`bochs-display`/`virtio-gpu`).
+- [ ] Disk delivery for QEMU: lazy-loaded block image or 9p via Emscripten FS. It replaces v86's `fs.json` chunks, and the Phase 3 OPFS layer has to back it.
+- [ ] Snapshot/instant boot for QEMU (savevm/migration to a file) if feasible. Otherwise optimise cold boot.
+
+### Phase 5 — Flatpak
+- [ ] Add `flatpak` + `bubblewrap` to the x86_64 image. The Alpine kernel already has user namespaces, seccomp, cgroups, FUSE and overlayfs (checked).
+- [ ] Flathub remote preconfigured, reached through the Phase 3 wisp proxy.
+- [ ] Flatpak installation (`/var/lib/flatpak`) on persistent OPFS-backed storage, with a size readout and an uninstall/cleanup UI so the browser's storage doesn't grow unbounded.
+- [ ] Validate with a few light GTK apps first (e.g. a text editor, calculator). Heavy GL apps (Firefox, LibreOffice) will be slow under software rendering. Document which apps are usable.
+- [ ] Optional: pre-install one runtime (`org.freedesktop.Platform`) in a separate lazily-loaded image layer, so the first app install doesn't download ~500 MB.
+
+### Later
+- [ ] Display resize from the browser window (fbdev X can't change mode; needs the `modesetting` driver or xrandr via bochs KMS).
+- [ ] Export/import `~` as `.tar`.
+- [ ] Shrink the desktop snapshot (currently 42 MB): more aggressive cache dropping, less RAM, or ship first-boot output as files.
 - [ ] Audio via SB16.
-- [ ] Absolute pointer via v86's existing vmmouse emulation.
-- [ ] Optional networking via wisp.
-
-### Phase 4 — Stretch
-- [ ] QEMU-Wasm backend behind the same `Machine` interface (x86_64, SMP).
+- [ ] Hosted static build (correct MIME types, compression, COOP/COEP).
 - [ ] "Seamless" mode: guest windows as separate browser-side windows (Xpra-style rootless; see `refs/display/xpra-html5`) inside a web desktop shell (ideas from `refs/shell/daedalOS`, `refs/shell/puter`).
 - [ ] Wayland path via Greenfield (`refs/display/greenfield`) for Wasm-native apps.
 - [ ] Linux/Wasm native backend once it has MMU + virtio.
@@ -126,9 +166,14 @@ Off by default. Options, in order of effort:
 | Big image downloads | Lazy 9p chunks, zstd, Cache API, tiny boot set |
 | 32-bit x86 package availability shrinking | Alpine x86 still maintained; Buildroot as fallback |
 | Relative mouse is awkward | v86 already has vmmouse; guest just needs the driver |
-| COOP/COEP needed for QEMU-Wasm threads | Only on the experimental track; host config documented |
+| COOP/COEP needed for QEMU-Wasm threads | Set in Vite now; document for hosting |
+| QEMU-Wasm too slow for a usable desktop | Benchmark before building anything (Phase 4 step 1); v86 remains the default |
+| Flatpak runtimes are huge (0.3–1 GB) | OPFS-backed storage, a size readout and cleanup UI, optional pre-installed runtime layer |
+| Flathub needs real HTTPS | wisp proxy (a server we run); without one, Flatpak can't install anything |
+| Flatpak GL apps slow under software rendering | Target light GTK apps; document what's usable |
 | CheerpX licensing | Never depend on it; reference only |
-| 5 GB disk limit | Build images in Docker volumes, prune; no kernel/Buildroot source checkouts locally (fetched inside Docker) |
+| 5 GB disk limit | Build QEMU-Wasm in GitHub Actions; generated images in `~/Library/Caches/dbvm`; no kernel/Buildroot/Emscripten checkouts locally |
+| Project folder is iCloud-synced (and iCloud is full) | Many-file outputs live outside it; `refs.nosync`, `node_modules` flagged as iCloud-ignored |
 
 ---
 

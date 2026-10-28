@@ -8,13 +8,18 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "assets": "sh scripts/fetch-assets.sh"
+    "assets": "sh scripts/fetch-assets.sh",
+    "postinstall": "xattr -w 'com.apple.fileprovider.ignore#P' 1 node_modules 2>/dev/null || true",
+    "image": "sh tools/build-image.sh"
   },
   "dependencies": {
+    "@xterm/xterm": "^6.0.0",
     "v86": "^0.5.472"
   },
   "devDependencies": {
+    "@types/ws": "^8.18.2",
     "typescript": "^7.0.2",
-    "vite": "^8.3.5"
+    "vite": "^8.3.5",
+    "ws": "^8.22.0"
   }
 }

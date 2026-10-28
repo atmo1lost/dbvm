@@ -1,0 +1,47 @@
+#!/bin/sh
+# dbvm guest agent. One text line per message over /dev/ttyS1:
+#   host -> guest:  time <unix-seconds> | clip <base64> | rescan | ping
+#   guest -> host:  hello | pong | clip <base64>
+# Keep it cheap: the guest CPU is emulated.
+
+PORT=/dev/ttyS1
+STATE=/run/dbvm
+export DISPLAY=:0 XAUTHORITY=/root/.Xauthority
+
+mkdir -p "$STATE"
+stty -F "$PORT" 115200 raw -echo
+exec 3<>"$PORT"
+
+say() { printf '%s\n' "$*" >&3; }
+b64() { base64 | tr -d '\n'; }
+
+# Report guest clipboard changes. The last value seen (or set by the host) is
+# kept in a file so host-set text isn't echoed straight back.
+watch_clipboard() {
+	while sleep 2; do
+		cur=$(xclip -o -selection clipboard 2>/dev/null | head -c 65536 | b64)
+		[ -n "$cur" ] || continue
+		[ "$cur" = "$(cat "$STATE/clip" 2>/dev/null)" ] && continue
+		printf '%s' "$cur" > "$STATE/clip"
+		say "clip $cur"
+	done
+}
+
+set_clipboard() {
+	printf '%s' "$1" > "$STATE/clip"
+	for sel in clipboard primary; do
+		printf '%s' "$1" | base64 -d | xclip -selection "$sel" -i 2>/dev/null
+	done
+}
+
+watch_clipboard &
+say hello
+
+while read -r cmd arg <&3; do
+	case "$cmd" in
+		time) date -s "@$arg" > /dev/null ;;
+		clip) set_clipboard "$arg" ;;
+		rescan) echo 2 > /proc/sys/vm/drop_caches ;;
+		ping) say pong ;;
+	esac
+done

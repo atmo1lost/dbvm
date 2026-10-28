@@ -9,10 +9,15 @@
   <body>
     <header id="toolbar">
       <span class="brand">dbvm</span>
+      <span id="profile" class="muted"></span>
       <span id="status">loading…</span>
       <span class="spacer"></span>
-      <button id="btn-save" disabled>Save state</button>
-      <button id="btn-restore" disabled>Restore state</button>
+      <nav class="tabs">
+        <button data-view="screen" class="active">Screen</button>
+        <button data-view="serial">Serial</button>
+      </nav>
+      <button id="btn-save" disabled title="Save the running machine to this browser">Save session</button>
+      <button id="btn-reset" disabled title="Discard the saved session">Reset</button>
       <button id="btn-restart" disabled>Restart</button>
       <button id="btn-fullscreen" disabled>Fullscreen</button>
     </header>
@@ -21,6 +26,7 @@
         <div class="text-screen"></div>
         <canvas class="gfx-screen"></canvas>
       </div>
+      <div id="serial" hidden></div>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

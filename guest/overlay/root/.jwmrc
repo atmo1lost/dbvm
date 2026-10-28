@@ -1,0 +1,89 @@
+<?xml version="1.0"?>
+<JWM>
+    <RootMenu onroot="13" label="dbvm">
+        <Program label="Terminal">xterm</Program>
+        <Program label="Files">pcmanfm</Program>
+        <Program label="Text Editor">mousepad</Program>
+        <Program label="Web Browser">dillo</Program>
+        <Program label="Task Manager">xterm -e htop</Program>
+        <Separator/>
+        <Restart label="Restart WM"/>
+        <Exit label="Log Out" confirm="true"/>
+    </RootMenu>
+
+    <Tray x="0" y="-1" height="30" autohide="off" layer="above">
+        <TrayButton label="  dbvm  ">root:1</TrayButton>
+        <Spacer width="6"/>
+        <TrayButton label="Terminal">exec:xterm</TrayButton>
+        <TrayButton label="Files">exec:pcmanfm</TrayButton>
+        <Spacer width="6"/>
+        <TaskList maxwidth="220"/>
+        <Dock/>
+        <Clock format="%H:%M"><Button mask="123">exec:xterm -e htop</Button></Clock>
+        <Spacer width="6"/>
+    </Tray>
+
+    <WindowStyle decorations="flat">
+        <Font>DejaVu Sans-9:bold</Font>
+        <Width>3</Width>
+        <Height>24</Height>
+        <Corner>0</Corner>
+        <Foreground>#9aa1ad</Foreground>
+        <Background>#232730</Background>
+        <Outline>#14161b</Outline>
+        <Opacity>1.0</Opacity>
+        <Active>
+            <Foreground>#ffffff</Foreground>
+            <Background>#3b6ea8</Background>
+            <Outline>#14161b</Outline>
+            <Opacity>1.0</Opacity>
+        </Active>
+    </WindowStyle>
+
+    <TrayStyle decorations="flat" group="true" list="all">
+        <Font>DejaVu Sans-9</Font>
+        <Background>#1b1e24</Background>
+        <Foreground>#d8dbe0</Foreground>
+        <Outline>#14161b</Outline>
+        <Opacity>1.0</Opacity>
+    </TrayStyle>
+
+    <TaskListStyle list="all" group="false">
+        <Font>DejaVu Sans-9</Font>
+        <Foreground>#c8ccd4</Foreground>
+        <Background>#262a33</Background>
+        <Active>
+            <Foreground>#ffffff</Foreground>
+            <Background>#3b6ea8</Background>
+        </Active>
+    </TaskListStyle>
+
+    <MenuStyle decorations="flat">
+        <Font>DejaVu Sans-10</Font>
+        <Foreground>#d8dbe0</Foreground>
+        <Background>#1b1e24</Background>
+        <Outline>#14161b</Outline>
+        <Active>
+            <Foreground>#ffffff</Foreground>
+            <Background>#3b6ea8</Background>
+        </Active>
+        <Opacity>1.0</Opacity>
+    </MenuStyle>
+
+    <ClockStyle>
+        <Font>DejaVu Sans-9:bold</Font>
+        <Foreground>#d8dbe0</Foreground>
+    </ClockStyle>
+
+    <Desktops width="1" height="1"/>
+    <FocusModel>click</FocusModel>
+    <SnapMode distance="8">border</SnapMode>
+    <MoveMode>opaque</MoveMode>
+    <ResizeMode>opaque</ResizeMode>
+    <DoubleClickSpeed>400</DoubleClickSpeed>
+
+    <Key mask="A" key="Tab">nextstacked</Key>
+    <Key mask="A" key="F4">close</Key>
+    <Key mask="A" key="F2">window</Key>
+    <Key mask="4" key="Return">exec:xterm</Key>
+</JWM>

@@ -1,0 +1,18 @@
+#!/sbin/openrc-run
+# tools/mkimage.py unpacks packages without running their maintainer scripts.
+# This runs them once inside the guest (users/groups, GSettings schemas, icon,
+# pixbuf and font caches) before services that depend on them start.
+
+description="dbvm first-boot package setup"
+
+depend() {
+	after bootmisc
+	before dbus udev-postmount
+}
+
+start() {
+	[ -e /etc/dbvm/firstboot.done ] && return 0
+	ebegin "Running deferred package scripts (first boot only)"
+	/usr/libexec/dbvm/firstboot > /var/log/dbvm-firstboot.log 2>&1
+	eend $?
+}

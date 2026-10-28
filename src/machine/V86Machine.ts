@@ -4,11 +4,19 @@ import { Emitter, type Machine, type MachineEvents, type MachineState } from "./
 
 export interface V86MachineConfig {
   screen: HTMLElement;
+  /** Container for an xterm.js serial console on ttyS0. */
+  serial?: { container: HTMLElement; xterm: Function };
   memoryMB?: number;
   vgaMemoryMB?: number;
   bzimage?: string;
+  initrd?: string;
   cmdline?: string;
-  initialState?: string;
+  /** Snapshot to resume from: a URL, or an in-memory state (e.g. a saved session). */
+  initialState?: string | ArrayBuffer;
+  /** Wisp relay for guest networking (virtio-net), e.g. "wisp://host/wisp/". */
+  networkRelay?: string;
+  /** Lazily-loaded 9p root: fs.json index + directory of content-addressed chunks. */
+  rootfs?: { basefs: string; baseurl: string };
 }
 
 export class V86Machine implements Machine {
@@ -27,11 +35,21 @@ export class V86Machine implements Machine {
       bios: image(`${base}bios/seabios.bin`),
       vga_bios: image(`${base}bios/vgabios.bin`),
       bzimage: config.bzimage ? image(config.bzimage) : undefined,
+      initrd: config.initrd ? image(config.initrd) : undefined,
       cmdline: config.cmdline,
-      initial_state: config.initialState ? image(config.initialState) : undefined,
-      // Empty in-memory 9p share, mounted by the guest at /mnt (host file drop lands here later).
-      filesystem: {},
+      initial_state:
+        typeof config.initialState === "string"
+          ? image(config.initialState)
+          : config.initialState && { buffer: config.initialState },
+      net_device: config.networkRelay ? { type: "virtio", relay_url: config.networkRelay } : undefined,
+      // ttyS1 carries the guest agent protocol (guest/overlay/usr/libexec/dbvm/agent).
+      uart1: true,
+      // Without a rootfs this is an empty in-memory 9p share, mounted by the guest at /mnt.
+      filesystem: config.rootfs ?? {},
       screen: { container: config.screen },
+      serial_console: config.serial
+        ? { type: "xtermjs", xterm_lib: config.serial.xterm, container: config.serial.container }
+        : undefined,
       autostart: true,
     });
 
@@ -44,6 +62,15 @@ export class V86Machine implements Machine {
     this.emulator.add_listener("emulator-stopped", () => this.setState("stopped"));
     this.emulator.add_listener("serial0-output-byte", (byte) => {
       this.events.emit("serial-out", String.fromCharCode(byte));
+    });
+    let agentLine = "";
+    this.emulator.add_listener("serial1-output-byte", (byte) => {
+      if (byte === 0x0a) {
+        this.events.emit("agent", agentLine.replace(/\r$/, ""));
+        agentLine = "";
+      } else {
+        agentLine += String.fromCharCode(byte);
+      }
     });
     this.emulator.add_listener("screen-set-size", ([width, height, bpp]) => {
       this.events.emit("screen-size", { width, height, graphical: bpp !== 0 });
@@ -85,6 +112,18 @@ export class V86Machine implements Machine {
 
   sendSerial(text: string): void {
     this.emulator.serial0_send(text);
+  }
+
+  sendAgent(line: string): void {
+    this.emulator.serial_send_bytes(1, new TextEncoder().encode(line + "\n"));
+  }
+
+  createFile(path: string, data: Uint8Array): Promise<void> {
+    return this.emulator.create_file(path, data);
+  }
+
+  sendScancodes(codes: number[]): void {
+    this.emulator.keyboard_send_scancodes(codes);
   }
 
   goFullscreen(): void {
