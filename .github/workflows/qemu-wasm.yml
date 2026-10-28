@@ -82,7 +82,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      DBVM_CACHE: ${{ runner.temp }}/dbvm
+      DBVM_CACHE: ${{ github.workspace }}/_dbvm
     steps:
       - uses: actions/checkout@v4
 
@@ -98,5 +98,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: alpine64
-          path: ${{ runner.temp }}/dbvm/images/alpine64/
+          path: _dbvm/images/alpine64/
           retention-days: 30
