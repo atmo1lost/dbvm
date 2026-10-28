@@ -1,7 +1,6 @@
-# Builds the 64-bit backend's heavy parts in CI so they never run on a laptop:
-#   qemu   - QEMU-Wasm (qemu-system-x86_64) with dbvm's canvas display patch
-#   disk   - the Alpine x86_64 guest: kernel, initramfs and an ext4 disk image
-# Fetch the results locally with tools/fetch-qemu-artifacts.sh.
+# Builds QEMU-Wasm (qemu-system-x86_64) with dbvm's canvas display patch in CI,
+# so the heavy build never runs on a laptop. The x86_64 guest image is built by
+# guest-x86_64.yml. Fetch both with tools/fetch-qemu-artifacts.sh.
 
 name: qemu-wasm
 
@@ -10,9 +9,6 @@ on:
   push:
     paths:
       - "qemu/**"
-      - "tools/mkimage.py"
-      - "tools/mkdisk.sh"
-      - "guest/**"
       - ".github/workflows/qemu-wasm.yml"
 
 env:
@@ -76,27 +72,4 @@ jobs:
         with:
           name: qemu-wasm
           path: out/
-          retention-days: 30
-
-  disk:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    env:
-      DBVM_CACHE: ${{ github.workspace }}/_dbvm
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build the x86_64 rootfs, kernel and initramfs
-        run: python3 -I tools/mkimage.py --arch x86_64
-
-      - name: Make the ext4 disk image
-        run: |
-          sudo sh tools/mkdisk.sh "$DBVM_CACHE/build/rootfs-x86_64.tar" "$DBVM_CACHE/images/alpine64/disk.img" 1G
-          date +%s > "$DBVM_CACHE/images/alpine64/version"
-          ls -la "$DBVM_CACHE/images/alpine64"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: alpine64
-          path: _dbvm/images/alpine64/
           retention-days: 30

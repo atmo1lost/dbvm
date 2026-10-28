@@ -49,6 +49,15 @@ DESKTOP_PACKAGES = [
     "jwm", "xterm", "pcmanfm", "mousepad", "dillo", "xclip",
     "font-dejavu", "hicolor-icon-theme", "adwaita-icon-theme",
 ]
+# Extra packages per architecture. The 64-bit guest gets Flatpak (Flathub only
+# publishes x86_64/aarch64 apps).
+ARCH_PACKAGES = {
+    "x86": [],
+    "x86_64": ["flatpak"],
+}
+# Flathub is preconfigured through flatpak's remotes.d drop-in directory.
+FLATHUB_REPO = "https://dl.flathub.org/repo/flathub.flatpakrepo"
+
 # Never install these: mkinitfs pulls in a large toolchain (we ship our own
 # initramfs), and mesa/llvm are ~300 MB of software GL that v86 can't use.
 EXCLUDE = {
@@ -310,7 +319,9 @@ def configure(rootfs, installed):
     rootfs.put("etc/hosts", "127.0.0.1\tdbvm localhost\n::1\tlocalhost\n")
     rootfs.mkdir("root/Downloads")  # host file drops land here
     rootfs.put("etc/fstab", "# root is the v86 9p share (host9p), mounted by the initramfs\n")
-    rootfs.put("etc/apk/world", "\n".join(sorted(set(PACKAGES + DESKTOP_PACKAGES))) + "\n")
+    rootfs.put("etc/apk/world", "\n".join(sorted(set(PACKAGES + DESKTOP_PACKAGES + ARCH_PACKAGES[ARCH]))) + "\n")
+    if "flatpak" in ARCH_PACKAGES[ARCH]:
+        rootfs.put("etc/flatpak/remotes.d/flathub.flatpakrepo", fetch(FLATHUB_REPO, "flathub.flatpakrepo"))
 
     for path in sorted(OVERLAY.rglob("*")):
         rel = path.relative_to(OVERLAY).as_posix()
@@ -399,7 +410,8 @@ def main():
     rootfs.add_tar(io.BytesIO(fetch(f"{MIRROR}/v{ALPINE_VERSION}/releases/{ARCH}/{name}", name)))
 
     pkgs = load_indexes()
-    todo = resolve(pkgs, PACKAGES + DESKTOP_PACKAGES, installed_packages(rootfs))
+    wanted = PACKAGES + DESKTOP_PACKAGES + ARCH_PACKAGES[ARCH]
+    todo = resolve(pkgs, wanted, installed_packages(rootfs))
     log(f"installing {len(todo)} packages")
     triggers = []
     for i, p in enumerate(todo):
