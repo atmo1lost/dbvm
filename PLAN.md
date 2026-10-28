@@ -132,17 +132,23 @@ Off by default. Options, in order of effort:
   | Host CPU while busy | ~2 cores | ~1 core |
 
   Caveats: a single quick run each, and the demo is a generic build (ASYNCIFY, no tuning). Multi-threaded TCG with more vCPUs helps parallel work, not per-thread speed, and costs more host CPU.
-  **Verdict:** a 64-bit guest works, but it's about 4× slower than v86, which is already the slow part. Flatpak's GTK4/Qt6 apps on top of that would be very sluggish. Decision pending (see below).
-- [ ] Build QEMU-Wasm (`qemu-system-x86_64`, multi-threaded TCG, Emscripten) in **GitHub Actions**, not on the Mac: it needs Docker + Emscripten and several GB of space (see the 5 GB budget and iCloud notes).
-- [ ] `QemuMachine` implementing the existing `Machine` interface, selected per profile.
-- [ ] COOP/COEP headers (SharedArrayBuffer for threads) in Vite and later in hosting.
-- [ ] x86_64 guest: `tools/mkimage.py` with `ARCH=x86_64` (same package list and overlay). The display driver depends on QEMU's emulated GPU (`bochs-display`/`virtio-gpu`).
-- [ ] Disk delivery for QEMU: lazy-loaded block image or 9p via Emscripten FS. It replaces v86's `fs.json` chunks, and the Phase 3 OPFS layer has to back it.
+  **Verdict:** a 64-bit guest works, but it's about 4× slower than v86, which is already the slow part. Flatpak's GTK4/Qt6 apps on top of that would be very sluggish.
+  **Decision (user):** push on with 64-bit + Flatpak anyway; v86 stays the fast default.
+- [x] **Canvas display for QEMU-Wasm**, which has none (its UIs are SDL/GTK/Cocoa/VNC/D-Bus): `qemu/patches/0001-ui-wasm-canvas-display.patch` adds `-display wasm` (`ui/wasm.c`). The surface is converted to RGBA in shared wasm memory with a frame counter, and input comes through a lock-free ring drained on the display refresh with the BQL held.
+- [~] **QEMU-Wasm built in GitHub Actions** (`.github/workflows/qemu-wasm.yml`): ktock/qemu-wasm @ `0ef7b4e` + our patches, toolchain image cached with buildx/GHA cache. Patch 0002 fixes an upstream zlib URL that zlib.net no longer serves. The first build is running.
+- [x] **x86_64 guest** (`tools/mkimage.py --arch x86_64`, CI workflow `guest-x86_64.yml`): same desktop packages and overlay plus Flatpak. 184 MB rootfs → 1 GB ext4 image (202 MB used), built with `tools/mkdisk.sh` in CI (needs Linux + root). The initramfs loads `virtio_blk`+ext4 and mounts `/dev/vda`. Display: `-vga std` (Bochs VBE), so the same Xorg fbdev config works. Pointer: `virtio-tablet-pci`.
+- [x] `QemuMachine` (`src/machine/QemuMachine.ts`) behind the `Machine` interface, profile `?profile=alpine64`. Canvas renderer, keyboard (set-1 numbers) and absolute pointer, serial console via xterm-pty.
+- [x] COOP/COEP headers in Vite (needed for SharedArrayBuffer/threads; also needed in hosting later).
+- [x] Disk delivery: Emscripten `createLazyFile` (HTTP range reads, 1 MB chunks) + QEMU `snapshot=on`, so guest writes go to an in-memory overlay. **Not yet persistent.**
+- [ ] First boot of the 64-bit desktop in the browser; measure boot time and responsiveness.
+- [ ] Guest networking for QEMU (needed for Flathub): a virtio-net backend that speaks to our Wisp relay, or c2w-net-proxy as in ktock's demo.
+- [ ] Agent channel (second serial port) for clipboard/time on QEMU.
 - [ ] Snapshot/instant boot for QEMU (savevm/migration to a file) if feasible. Otherwise optimise cold boot.
 
 ### Phase 5 — Flatpak
-- [ ] Add `flatpak` + `bubblewrap` to the x86_64 image. The Alpine kernel already has user namespaces, seccomp, cgroups, FUSE and overlayfs (checked).
-- [ ] Flathub remote preconfigured, reached through the Phase 3 wisp proxy.
+- [x] `flatpak` 1.14 + `bubblewrap` in the x86_64 image (+14 MB). The Alpine kernel has user namespaces, seccomp, cgroups, FUSE and overlayfs (checked).
+- [x] Flathub preconfigured via `/etc/flatpak/remotes.d/flathub.flatpakrepo`.
+- [ ] Reach Flathub through the Wisp relay (blocked on QEMU guest networking, Phase 4).
 - [ ] Flatpak installation (`/var/lib/flatpak`) on persistent OPFS-backed storage, with a size readout and an uninstall/cleanup UI so the browser's storage doesn't grow unbounded.
 - [ ] Validate with a few light GTK apps first (e.g. a text editor, calculator). Heavy GL apps (Firefox, LibreOffice) will be slow under software rendering. Document which apps are usable.
 - [ ] Optional: pre-install one runtime (`org.freedesktop.Platform`) in a separate lazily-loaded image layer, so the first app install doesn't download ~500 MB.
