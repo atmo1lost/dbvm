@@ -1,0 +1,102 @@
+# Builds the 64-bit backend's heavy parts in CI so they never run on a laptop:
+#   qemu   - QEMU-Wasm (qemu-system-x86_64) with dbvm's canvas display patch
+#   disk   - the Alpine x86_64 guest: kernel, initramfs and an ext4 disk image
+# Fetch the results locally with tools/fetch-qemu-artifacts.sh.
+
+name: qemu-wasm
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "qemu/**"
+      - "tools/mkimage.py"
+      - "tools/mkdisk.sh"
+      - "guest/**"
+      - ".github/workflows/qemu-wasm.yml"
+
+env:
+  QEMU_WASM_REPO: ktock/qemu-wasm
+  QEMU_WASM_REF: 0ef7b4e2814b231705d8371dd7997f5b72e70baf
+
+jobs:
+  qemu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.QEMU_WASM_REPO }}
+          ref: ${{ env.QEMU_WASM_REF }}
+          path: qemu-src
+
+      - name: Apply dbvm patches
+        working-directory: qemu-src
+        run: |
+          for p in ../qemu/patches/*.patch; do
+            echo "applying $p"
+            git apply "$p"
+          done
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Emscripten + glib/pixman/zlib/ffi built for wasm. Slow the first time, cached after.
+      - name: Build the toolchain image
+        uses: docker/build-push-action@v6
+        with:
+          context: qemu-src
+          file: qemu-src/Dockerfile
+          tags: buildqemu
+          load: true
+          cache-from: type=gha,scope=buildqemu
+          cache-to: type=gha,scope=buildqemu,mode=max
+
+      - name: Configure and build qemu-system-x86_64
+        run: |
+          mkdir -p out
+          docker run --rm -v "$PWD/qemu-src:/qemu" -v "$PWD/out:/out" -w /build buildqemu bash -euc '
+            EXTRA_CFLAGS="-O3 -g -Wno-error=unused-command-line-argument -matomics -mbulk-memory -DNDEBUG -DG_DISABLE_ASSERT -D_GNU_SOURCE -sASYNCIFY=1 -pthread -sPROXY_TO_PTHREAD=1 -sFORCE_FILESYSTEM -sALLOW_TABLE_GROWTH -sTOTAL_MEMORY=2300MB -sWASM_BIGINT -sMALLOC=mimalloc --js-library=/build/node_modules/xterm-pty/emscripten-pty.js -sEXPORT_ES6=1 -sASYNCIFY_IMPORTS=ffi_call_js"
+            emconfigure /qemu/configure --static --target-list=x86_64-softmmu --cpu=wasm32 --cross-prefix= \
+              --without-default-features --enable-system --with-coroutine=fiber --enable-virtfs --enable-pixman \
+              --extra-cflags="$EXTRA_CFLAGS" --extra-cxxflags="$EXTRA_CFLAGS" \
+              --extra-ldflags="-sEXPORTED_RUNTIME_METHODS=getTempRet0,setTempRet0,addFunction,removeFunction,TTY,FS"
+            emmake make -j"$(nproc)" qemu-system-x86_64
+            cp qemu-system-x86_64 /out/qemu-system-x86_64.js
+            cp qemu-system-x86_64.wasm qemu-system-x86_64.worker.js /out/
+            mkdir -p /out/rom
+            cp /qemu/pc-bios/bios-256k.bin /qemu/pc-bios/vgabios-stdvga.bin /qemu/pc-bios/kvmvapic.bin \
+               /qemu/pc-bios/linuxboot_dma.bin /qemu/pc-bios/efi-virtio.rom /out/rom/
+            ./qemu-system-x86_64 --version 2>/dev/null || true
+          '
+          ls -la out out/rom
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qemu-wasm
+          path: out/
+          retention-days: 30
+
+  disk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      DBVM_CACHE: ${{ runner.temp }}/dbvm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the x86_64 rootfs, kernel and initramfs
+        run: python3 -I tools/mkimage.py --arch x86_64
+
+      - name: Make the ext4 disk image
+        run: |
+          sudo sh tools/mkdisk.sh "$DBVM_CACHE/build/rootfs-x86_64.tar" "$DBVM_CACHE/images/alpine64/disk.img" 1G
+          date +%s > "$DBVM_CACHE/images/alpine64/version"
+          ls -la "$DBVM_CACHE/images/alpine64"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: alpine64
+          path: ${{ runner.temp }}/dbvm/images/alpine64/
+          retention-days: 30

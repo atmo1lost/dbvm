@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
-"""Build the dbvm Alpine i686 guest image without Docker.
+"""Build the dbvm Alpine guest image without Docker.
 
-Starts from Alpine's x86 minirootfs, resolves and unpacks extra packages from
+Two targets (--arch):
+  x86     i686 guest for v86. Root is v86's lazily loaded 9p share.
+  x86_64  64-bit guest for QEMU-Wasm. Root is an ext4 virtio disk (/dev/vda),
+          made from rootfs.tar by tools/mkdisk.sh (Linux/CI only).
+
+Starts from Alpine's minirootfs, resolves and unpacks extra packages from
 the Alpine CDN straight into an in-memory tar (no host extraction, so macOS's
 case-insensitive filesystem never touches guest paths), applies dbvm config,
 and writes:
 
-  $DBVM_CACHE/build/rootfs.tar          full guest rootfs
-  $DBVM_CACHE/images/alpine/vmlinuz-virt   kernel
-  $DBVM_CACHE/images/alpine/initramfs.img  tiny busybox initramfs that mounts 9p root
+  $DBVM_CACHE/build/rootfs[-x86_64].tar        full guest rootfs
+  $DBVM_CACHE/images/alpine[64]/vmlinuz-virt   kernel
+  $DBVM_CACHE/images/alpine[64]/initramfs.img  tiny busybox initramfs that mounts the root
 
 $DBVM_CACHE defaults to ~/Library/Caches/dbvm (outside the iCloud-synced project).
 
@@ -29,7 +34,7 @@ from pathlib import Path
 
 ALPINE_VERSION = "3.21"
 MINIROOTFS = "3.21.9"
-ARCH = "x86"
+ARCH = "x86"  # set from --arch in main()
 MIRROR = "https://dl-cdn.alpinelinux.org/alpine"
 REPOS = ["main", "community"]
 
@@ -51,8 +56,18 @@ EXCLUDE = {
     "mesa", "mesa-dri-gallium", "llvm19-libs",
 }
 
-# Modules the initramfs loads, in dependency order (virtio-pci is built in).
-INITRAMFS_MODULES = ["netfs", "9pnet", "9pnet_virtio", "9p"]
+# Per-architecture root filesystem: modules the initramfs loads (in dependency
+# order; virtio-pci is built in) and how it mounts the root.
+ROOTS = {
+    "x86": {
+        "modules": ["netfs", "9pnet", "9pnet_virtio", "9p"],
+        "mount": "mount -t 9p -o trans=virtio,cache=loose host9p /newroot",
+    },
+    "x86_64": {
+        "modules": ["virtio_blk", "crc16", "mbcache", "jbd2", "ext4"],
+        "mount": "mount -t ext4 /dev/vda /newroot",
+    },
+}
 
 RUNLEVELS = {
     "sysinit": ["devfs", "dmesg", "udev", "udev-trigger", "udev-settle"],
@@ -73,14 +88,19 @@ mount -t devtmpfs devtmpfs /dev
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 for m in {modules}; do insmod /lib/modules/$m.ko || echo "dbvm: failed to load $m"; done
-if ! mount -t 9p -o trans=virtio,cache=loose host9p /newroot; then
-    echo "dbvm: could not mount 9p root, dropping to initramfs shell"
+# The root device may take a moment to appear after its driver loads.
+for i in 1 2 3 4 5 6 7 8 9 10; do
+    {mount} && break
+    sleep 1
+done
+if ! mountpoint -q /newroot; then
+    echo "dbvm: could not mount the root filesystem, dropping to initramfs shell"
     exec sh
 fi
 mount --move /dev /newroot/dev
 umount /proc /sys
 exec switch_root /newroot /sbin/init
-""".format(modules=" ".join(INITRAMFS_MODULES))
+"""
 
 DBVM_CACHE = Path(os.environ.get("DBVM_CACHE", Path.home() / "Library/Caches/dbvm"))
 CACHE = DBVM_CACHE / "build" / "cache"
@@ -92,7 +112,7 @@ def log(msg):
 
 def fetch(url, name):
     """Download url into the cache (once) and return its bytes."""
-    path = CACHE / name
+    path = CACHE / ARCH / name
     if not path.exists():
         log(f"fetch {url}")
         for attempt in range(3):
@@ -348,8 +368,10 @@ def build_initramfs(pkgs, rootfs):
              ("bin", "dev", "proc", "sys", "newroot", "lib", "lib/modules")]
     files.append(("dev/console", 0o020600, b"", 5, 1))
     files.append(("bin/busybox", 0o100755, busybox))
-    files.append(("init", 0o100755, INIT_SCRIPT.encode()))
-    for mod in INITRAMFS_MODULES:
+    root = ROOTS[ARCH]
+    init = INIT_SCRIPT.format(modules=" ".join(root["modules"]), mount=root["mount"])
+    files.append(("init", 0o100755, init.encode()))
+    for mod in root["modules"]:
         path = next(p for p in rootfs.entries
                     if p.startswith(modules_root) and p.endswith(f"/{mod}.ko.gz"))
         files.append((f"lib/modules/{mod}.ko", 0o100644, gzip.decompress(rootfs.get(path))))
@@ -361,10 +383,16 @@ def apk_url(pkg):
 
 
 def main():
+    global ARCH
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--out-tar", default=str(DBVM_CACHE / "build" / "rootfs.tar"))
-    ap.add_argument("--out-boot", default=str(DBVM_CACHE / "images" / "alpine"))
+    ap.add_argument("--arch", choices=sorted(ROOTS), default="x86")
+    ap.add_argument("--out-tar")
+    ap.add_argument("--out-boot")
     args = ap.parse_args()
+    ARCH = args.arch
+    suffix = "" if ARCH == "x86" else f"-{ARCH}"
+    args.out_tar = args.out_tar or str(DBVM_CACHE / "build" / f"rootfs{suffix}.tar")
+    args.out_boot = args.out_boot or str(DBVM_CACHE / "images" / ("alpine" if ARCH == "x86" else "alpine64"))
 
     rootfs = RootFS()
     name = f"alpine-minirootfs-{MINIROOTFS}-{ARCH}.tar.gz"
