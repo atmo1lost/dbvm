@@ -1,0 +1,16 @@
+emulators copy/v86
+emulators leaningtech/webvm
+emulators ktock/container2wasm
+emulators ktock/qemu-wasm
+emulators joelseverin/linux-wasm
+emulators fernandotcl/TinyEMU
+emulators plasma-umass/browsix
+display udevbe/greenfield
+display novnc/noVNC
+display Xpra-org/xpra-html5
+shell DustinBrett/daedalOS
+shell HeyPuter/puter
+terminal xtermjs/xterm.js
+net MercuryWorkshop/wisp-server-node
+net MercuryWorkshop/epoxy-tls
+net benjamincburns/websockproxy
