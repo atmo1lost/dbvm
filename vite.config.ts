@@ -1,12 +1,14 @@
 import { createReadStream, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, normalize } from "node:path";
+import { extname, join, normalize } from "node:path";
 import { defineConfig, type Plugin } from "vite";
 import { attachWisp } from "./server/wisp.ts";
 
 // Guest images are thousands of small files. They live outside the (iCloud-synced)
 // project folder and are served directly, never watched or bundled.
 export const IMAGES_DIR = process.env.DBVM_IMAGES ?? join(homedir(), "Library/Caches/dbvm/images");
+
+const MIME: Record<string, string> = { ".js": "text/javascript", ".wasm": "application/wasm" };
 
 function serveImages(): Plugin {
   return {
@@ -25,7 +27,8 @@ function serveImages(): Plugin {
           return next();
         }
 
-        res.setHeader("Content-Type", "application/octet-stream");
+        res.setHeader("Content-Type", MIME[extname(file)] ?? "application/octet-stream");
+        res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
         res.setHeader("Cache-Control", "no-cache");
         res.setHeader("Accept-Ranges", "bytes");
         const range = /bytes=(\d+)-(\d*)/.exec(req.headers.range ?? "");
@@ -62,6 +65,11 @@ function wispRelay(): Plugin {
 export default defineConfig({
   plugins: [serveImages(), wispRelay()],
   server: {
+    // Cross-origin isolation: SharedArrayBuffer and threads for the QEMU backend.
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "require-corp",
+    },
     watch: { ignored: ["**/refs/**", "**/refs.nosync/**", "**/build/**", "**/guest/**", "**/tools/**"] },
   },
 });

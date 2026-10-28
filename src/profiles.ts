@@ -1,10 +1,19 @@
+import type { QemuMachineConfig } from "./machine/QemuMachine";
 import type { V86MachineConfig } from "./machine/V86Machine";
 
-type Profile = Omit<V86MachineConfig, "screen" | "serial"> & {
+export type V86Profile = Omit<V86MachineConfig, "screen" | "serial"> & {
+  backend?: "v86";
   name: string;
   /** Text file whose content identifies the image build; enables saved sessions. */
   versionUrl?: string;
 };
+
+export type QemuProfile = Omit<QemuMachineConfig, "screen" | "serial"> & {
+  backend: "qemu";
+  name: string;
+};
+
+type Profile = V86Profile | QemuProfile;
 
 const images = `${import.meta.env.BASE_URL}images`;
 const v86Cmdline = "tsc=reliable mitigations=off random.trust_cpu=on";
@@ -18,7 +27,7 @@ const networkRelay =
 
 // dbvm's own Alpine i686 guest (tools/build-image.sh), root on lazy-loaded 9p.
 // Keep in sync with tools/build-state.mjs, which snapshots this exact machine.
-const alpineCold: Profile = {
+const alpineCold: V86Profile = {
   name: "Alpine Linux (cold boot)",
   memoryMB: 512,
   bzimage: `${images}/alpine/vmlinuz-virt`,
@@ -33,6 +42,18 @@ export const profiles: Record<string, Profile> = {
   // Restores the snapshot from tools/build-state.mjs: lands on the running desktop.
   alpine: { ...alpineCold, name: "Alpine Linux", initialState: `${images}/alpine/state.bin.zst` },
   "alpine-cold": alpineCold,
+  // 64-bit Alpine (x86_64) with Flatpak on QEMU-Wasm. Built in CI; fetch with
+  // tools/fetch-qemu-artifacts.sh.
+  alpine64: {
+    backend: "qemu",
+    name: "Alpine Linux 64-bit (QEMU)",
+    qemuUrl: `${images}/qemu`,
+    kernel: `${images}/alpine64/vmlinuz-virt`,
+    initrd: `${images}/alpine64/initramfs.img`,
+    disk: `${images}/alpine64/disk.img`,
+    cmdline: "console=ttyS0,115200 quiet video=1024x768",
+    memoryMB: 1024,
+  },
   // Stock v86 Buildroot kernel with a busybox initramfs (Phase 0 smoke test).
   buildroot: {
     name: "Buildroot (v86 stock)",

@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@xterm/xterm": "^6.0.0",
-    "v86": "^0.5.472"
+    "v86": "^0.5.472",
+    "xterm-pty": "^0.10.1"
   },
   "devDependencies": {
     "@types/ws": "^8.18.2",

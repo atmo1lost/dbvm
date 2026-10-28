@@ -1,6 +1,8 @@
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { HostAgent } from "./agent";
+import type { Machine } from "./machine/Machine";
+import { QemuMachine } from "./machine/QemuMachine";
 import { V86Machine } from "./machine/V86Machine";
 import { selectedProfile } from "./profiles";
 import { clearSession, loadSession, saveSession } from "./session";
@@ -36,7 +38,7 @@ const [profileId, profile] = selectedProfile();
 $("profile").textContent = profile.name;
 
 // A saved session (if any, and taken on this image build) replaces the shipped snapshot.
-const imageVersion = profile.versionUrl
+const imageVersion = profile.backend !== "qemu" && profile.versionUrl
   ? await fetch(profile.versionUrl, { cache: "no-store" }).then((r) => (r.ok ? r.text() : null)).catch(() => null)
   : null;
 let session: ArrayBuffer | null = null;
@@ -45,12 +47,11 @@ if (imageVersion) {
   session = await loadSession(profileId, imageVersion).catch(() => null);
 }
 
-const machine = new V86Machine({
-  ...profile,
-  initialState: session ?? profile.initialState,
-  screen: views.screen,
-  serial: { container: views.serial, xterm: Terminal },
-});
+const serial = { container: views.serial, xterm: Terminal };
+const machine: Machine =
+  profile.backend === "qemu"
+    ? new QemuMachine({ ...profile, screen: views.screen, serial })
+    : new V86Machine({ ...profile, initialState: session ?? profile.initialState, screen: views.screen, serial });
 const agent = new HostAgent(machine, notify);
 if (session) notify("resumed saved session");
 
