@@ -172,8 +172,17 @@ export class QemuMachine implements Machine {
       mainScriptUrlOrBlob: scriptUrl,
       locateFile: (path: string) => new URL(`${qemuUrl}/${path}`, location.href).href,
       arguments: [
-        "-M", "pc", "-m", `${this.config.memoryMB ?? 1024}M`,
-        "-accel", "tcg,tb-size=500",
+        // The wasm heap is fixed at 2300 MB (TOTAL_MEMORY in the CI build). Guest
+        // RAM + the TCG translation cache + QEMU's own allocations must fit, or
+        // QEMU aborts with OOM a few minutes in.
+        "-M", "pc", "-m", `${this.config.memoryMB ?? 768}M`,
+        // The guest has no entropy source otherwise: getrandom() blocks forever
+        // (JWM hung in wait_for_random_bytes). TCG emulates RDRAND, which the
+        // kernel trusts via random.trust_cpu=on; virtio-rng is a fallback.
+        // ("-cpu max" panics the guest kernel early under TCG here.)
+        "-cpu", "qemu64,+rdrand",
+        "-device", "virtio-rng-pci",
+        "-accel", "tcg,tb-size=256",
         "-L", "/rom",
         "-display", "wasm", "-vga", "std",
         // Output-only serial console: QEMU never reads the terminal, because

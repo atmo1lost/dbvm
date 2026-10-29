@@ -142,8 +142,12 @@ Off by default. Options, in order of effort:
 - [x] Disk delivery: Emscripten `createLazyFile` (HTTP range reads, 1 MB chunks) + QEMU `snapshot=on`, so guest writes go to an in-memory overlay. **Not yet persistent.**
 - [~] **First 64-bit boot in the browser (2026-10-29):** QEMU-Wasm starts, the x86_64 kernel boots from the lazily loaded ext4 disk, OpenRC runs, root logs in on tty1 and ttyS0, and **X starts at 1024×768 on our canvas display** (about 2 min from page load). The **absolute mouse works** (virtio-tablet through the input ring). Host CPU ~1–1.6 cores.
   - Fixed on the way: Emscripten's createLazyFile refuses main-thread sync XHR (custom HTTP-backed disk node instead); `/var/tmp` missing for `snapshot=on`; worker scripts need COEP on their own response; ext4 needs `crc32c` (now loaded, and the disk has no metadata_csum or journal); first-boot package scripts didn't finish under QEMU, so they now run natively in a chroot in CI.
-  - **Open: JWM doesn't come up** (process running, no taskbar, no menu on click). X itself and the cursor work. Next step: start an xterm before JWM and use the guest keyboard to look at JWM's state.
-  - **Open: serial console input** stalls QEMU's main loop once a line is longer than roughly 100–150 characters, even paced. Short commands work. It's in xterm-pty's blocking read path; options are an output-only serial (`-serial file:/dev/tty`) plus the agent on a separate channel.
+  - [x] **Full 64-bit desktop works (2026-10-29):** JWM taskbar, xterm, keyboard and mouse. About 2 min to X and ~5 min to a usable desktop on a cold boot.
+    - The "freezes" were `Aborted(OOM)`: the wasm heap is fixed at 2300 MB, so guest RAM is now 768 MB and tb-size 256 MB (was 1024 + 500).
+    - JWM was blocked in `wait_for_random_bytes`: the guest had no entropy. Fixed with `-cpu qemu64,+rdrand` + `random.trust_cpu=on` + `virtio-rng-pci`. (`-cpu max` panics the guest kernel under TCG.)
+    - The serial console is now output-only (`-serial file:/dev/tty`). Its input path through xterm-pty could block QEMU's main loop. A boot-time script (`guest/overlay-x86_64/etc/local.d/dbvm-diagnostics.start`) prints process states and logs there instead.
+    - The x86_64 session opens an xterm before JWM (`guest/overlay-x86_64/root/.xinitrc`).
+  - [ ] Faster start: snapshot/resume for QEMU (savevm or migration to a file), or trim what X/JWM do at startup.
 - [ ] Guest networking for QEMU (needed for Flathub): a virtio-net backend that speaks to our Wisp relay, or c2w-net-proxy as in ktock's demo.
 - [ ] Agent channel (second serial port) for clipboard/time on QEMU.
 - [ ] Snapshot/instant boot for QEMU (savevm/migration to a file) if feasible. Otherwise optimise cold boot.

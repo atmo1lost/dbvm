@@ -51,8 +51,8 @@ export const profiles: Record<string, Profile> = {
     kernel: `${images}/alpine64/vmlinuz-virt`,
     initrd: `${images}/alpine64/initramfs.img`,
     disk: `${images}/alpine64/disk.img`,
-    cmdline: "console=ttyS0,115200 quiet video=1024x768",
-    memoryMB: 1024,
+    cmdline: "console=ttyS0,115200 quiet video=1024x768 random.trust_cpu=on",
+    memoryMB: 768,
   },
   // Stock v86 Buildroot kernel with a busybox initramfs (Phase 0 smoke test).
   buildroot: {

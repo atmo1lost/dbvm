@@ -5,14 +5,15 @@
 	sleep 150
 	{
 		echo "==== dbvm diagnostics (uptime: $(cut -d' ' -f1 /proc/uptime)s)"
-		for name in Xorg jwm xterm dbus-daemon; do
+		for name in Xorg X jwm xterm dbus-daemon; do
 			for pid in $(pgrep -x "$name"); do
 				echo "$name[$pid] $(grep State /proc/"$pid"/status) wchan=$(cat /proc/"$pid"/wchan)"
 			done
 		done
 		echo "---- jwm.log"; tail -n 15 /var/log/jwm.log
 		echo "---- Xorg errors"; grep -E '\((EE|WW)\)' /var/log/Xorg.0.log | tail -n 10
-		echo "---- startx.log"; grep -v '^\s*(' /var/log/startx.log | tail -n 8
+		echo "---- entropy"; cat /proc/sys/kernel/random/entropy_avail; ls /sys/class/misc/hw_random 2>/dev/null && cat /sys/class/misc/hw_random/rng_current
+		echo "---- startx.log"; grep -vE '^\s*\((--|\*\*|==|II)\)' /var/log/startx.log | tail -n 8
 		echo "---- load"; cat /proc/loadavg
 		echo "==== end diagnostics"
 	} > /dev/ttyS0 2>&1
