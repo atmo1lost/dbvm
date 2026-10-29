@@ -176,7 +176,9 @@ export class QemuMachine implements Machine {
         "-accel", "tcg,tb-size=500",
         "-L", "/rom",
         "-display", "wasm", "-vga", "std",
-        "-serial", "stdio", "-monitor", "none", "-parallel", "none",
+        // Output-only serial console: QEMU never reads the terminal, because
+        // xterm-pty's blocking read can stall QEMU's whole main loop.
+        "-serial", "file:/dev/tty", "-monitor", "none", "-parallel", "none",
         "-nic", "none",
         "-kernel", "/boot/vmlinuz-virt",
         "-initrd", "/boot/initramfs.img",
@@ -315,16 +317,8 @@ export class QemuMachine implements Machine {
     return Promise.reject(new Error("saved sessions aren't supported on the QEMU backend yet"));
   }
 
-  // Feed serial input a few bytes at a time: a burst larger than the emulated
-  // UART's 16-byte FIFO makes xterm-pty's blocking read stall QEMU's main loop.
-  private serialQueue = Promise.resolve();
-  sendSerial(text: string): void {
-    for (let i = 0; i < text.length; i += 8) {
-      const piece = text.slice(i, i + 8);
-      this.serialQueue = this.serialQueue
-        .then(() => this.term.input(piece, true))
-        .then(() => new Promise((r) => setTimeout(r, 60)));
-    }
+  sendSerial(): void {
+    // The serial console is output-only on this backend (see -serial above).
   }
 
   sendAgent(): void {

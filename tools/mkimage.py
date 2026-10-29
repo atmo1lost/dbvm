@@ -85,8 +85,9 @@ RUNLEVELS = {
     "shutdown": ["killprocs", "savecache"],
 }
 
-# Files copied verbatim into the guest (X config, WM, first-boot hook, ...).
-OVERLAY = Path(__file__).resolve().parent.parent / "guest" / "overlay"
+# Files copied verbatim into the guest (X config, WM, first-boot hook, ...),
+# then guest/overlay-<arch> on top for architecture-specific files.
+GUEST = Path(__file__).resolve().parent.parent / "guest"
 # Maintainer scripts are not run at build time; first boot runs them in the guest.
 SCRIPTS_DIR = "etc/dbvm/apk-scripts"
 
@@ -323,12 +324,13 @@ def configure(rootfs, installed):
     if "flatpak" in ARCH_PACKAGES[ARCH]:
         rootfs.put("etc/flatpak/remotes.d/flathub.flatpakrepo", fetch(FLATHUB_REPO, "flathub.flatpakrepo"))
 
-    for path in sorted(OVERLAY.rglob("*")):
-        rel = path.relative_to(OVERLAY).as_posix()
-        if path.is_dir():
-            rootfs.mkdir(rel)
-        elif path.name != ".DS_Store":
-            rootfs.put(rel, path.read_bytes(), 0o755 if path.stat().st_mode & 0o111 else 0o644)
+    for overlay in (GUEST / "overlay", GUEST / f"overlay-{ARCH}"):
+        for path in sorted(overlay.rglob("*")):
+            rel = path.relative_to(overlay).as_posix()
+            if path.is_dir():
+                rootfs.mkdir(rel)
+            elif path.name != ".DS_Store":
+                rootfs.put(rel, path.read_bytes(), 0o755 if path.stat().st_mode & 0o111 else 0o644)
 
     for level, services in RUNLEVELS.items():
         rootfs.mkdir(f"etc/runlevels/{level}")
