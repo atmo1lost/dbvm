@@ -16,7 +16,7 @@ trap 'rm -rf "$work"' EXIT
 tar -xpf "$TAR" -C "$work" --numeric-owner
 rm -f "$OUT"
 truncate -s "$SIZE" "$OUT"
-# No journal: the disk is used through a copy-on-write overlay in the browser,
-# so journaling only adds writes.
-mke2fs -q -t ext4 -O ^has_journal -L dbvm-root -m 0 -d "$work" "$OUT"
+# No journal or metadata checksums: the disk is used through a copy-on-write
+# overlay in the browser, and both only cost emulated CPU and extra writes.
+mke2fs -q -t ext4 -O ^has_journal,^metadata_csum -L dbvm-root -m 0 -d "$work" "$OUT"
 echo "wrote $OUT ($(du -h "$OUT" | cut -f1) used of $SIZE)"

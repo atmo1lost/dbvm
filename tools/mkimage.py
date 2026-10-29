@@ -73,7 +73,7 @@ ROOTS = {
         "mount": "mount -t 9p -o trans=virtio,cache=loose host9p /newroot",
     },
     "x86_64": {
-        "modules": ["virtio_blk", "crc16", "mbcache", "jbd2", "ext4"],
+        "modules": ["virtio_blk", "crc16", "crc32c_generic", "mbcache", "jbd2", "ext4"],
         "mount": "mount -t ext4 /dev/vda /newroot",
     },
 }

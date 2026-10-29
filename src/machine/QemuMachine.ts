@@ -6,8 +6,9 @@
 // a <canvas> each animation frame.
 // Input: keyboard (PC scancode numbers) and absolute pointer events are pushed
 // into a ring that QEMU drains on its display refresh.
-// Disk: the ext4 image is mapped lazily (HTTP range requests) with QEMU's
-// snapshot=on, so guest writes stay in memory and the image is never modified.
+// Disk: the ext4 image is read lazily over HTTP range requests (see
+// mountHttpFile) with QEMU's snapshot=on, so guest writes stay in memory and
+// the image is never modified.
 //
 // Needs cross-origin isolation (COOP/COEP) for SharedArrayBuffer + threads.
 
@@ -38,11 +39,69 @@ interface EmscriptenModule {
   FS: {
     mkdir(path: string): void;
     writeFile(path: string, data: Uint8Array): void;
-    createLazyFile(parent: string, name: string, url: string, canRead: boolean, canWrite: boolean): void;
+    createFile(parent: string, name: string, properties: object, canRead: boolean, canWrite: boolean): FSNode;
   };
   TTY: { stream_ops: { poll: (stream: unknown, timeout: number) => number } };
   _dbvm_display_info(): number;
   _dbvm_input_push(type: number, a: number, b: number): number;
+}
+
+interface FSNode {
+  contents: unknown;
+  stream_ops: Record<string, unknown>;
+}
+
+const DISK_CHUNK = 1 << 20;
+
+/**
+ * A read-only file whose bytes are fetched from `url` in 1 MB chunks on first
+ * access and cached. This build services filesystem calls on the browser's
+ * main thread, where Emscripten's createLazyFile refuses to run (it only allows
+ * synchronous binary XHR in workers). Main-thread sync XHR still works when the
+ * body is read as text with the x-user-defined charset (one char per byte).
+ * Each chunk briefly blocks the page, which is fine for a localhost or CDN disk.
+ */
+function mountHttpFile(mod: EmscriptenModule, dir: string, name: string, url: string, size: number): void {
+  const chunks = new Map<number, Uint8Array>();
+  const chunk = (index: number): Uint8Array => {
+    let data = chunks.get(index);
+    if (data) return data;
+    const start = index * DISK_CHUNK;
+    const end = Math.min(size, start + DISK_CHUNK) - 1;
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", url, false);
+    xhr.setRequestHeader("Range", `bytes=${start}-${end}`);
+    xhr.overrideMimeType("text/plain; charset=x-user-defined");
+    xhr.send();
+    if (xhr.status !== 206 && xhr.status !== 200) throw new Error(`${url}: HTTP ${xhr.status}`);
+    const text = xhr.responseText;
+    data = new Uint8Array(text.length);
+    for (let i = 0; i < text.length; i++) data[i] = text.charCodeAt(i) & 0xff;
+    chunks.set(index, data);
+    return data;
+  };
+
+  const node = mod.FS.createFile(dir, name, { isDevice: false }, true, false);
+  // Truthy contents stop Emscripten from trying to "force load" the file.
+  node.contents = { length: size };
+  Object.defineProperty(node, "usedBytes", { get: () => size });
+  node.stream_ops = {
+    ...node.stream_ops,
+    read(_stream: unknown, buffer: Int8Array, offset: number, length: number, position: number): number {
+      if (position >= size) return 0;
+      const total = Math.min(length, size - position);
+      let done = 0;
+      while (done < total) {
+        const pos = position + done;
+        const data = chunk(Math.floor(pos / DISK_CHUNK));
+        const from = pos % DISK_CHUNK;
+        const n = Math.min(total - done, data.length - from);
+        buffer.set(data.subarray(from, from + n), offset + done);
+        done += n;
+      }
+      return total;
+    },
+  };
 }
 
 export class QemuMachine implements Machine {
@@ -92,6 +151,11 @@ export class QemuMachine implements Machine {
     if (!crossOriginIsolated) throw new Error("page is not cross-origin isolated (COOP/COEP headers missing)");
     const { qemuUrl, kernel, initrd, disk, cmdline } = this.config;
 
+    const diskUrl = new URL(disk, location.href).href;
+    const diskHead = await fetch(diskUrl, { method: "HEAD" });
+    const diskSize = Number(diskHead.headers.get("Content-Length"));
+    if (!diskHead.ok || !diskSize) throw new Error(`${disk}: can't determine size (HTTP ${diskHead.status})`);
+
     const [kernelData, initrdData, ...roms] = await Promise.all([
       this.fetchBytes(kernel),
       this.fetchBytes(initrd),
@@ -102,7 +166,6 @@ export class QemuMachine implements Machine {
     const { master, slave } = openpty();
     this.term.loadAddon(master);
 
-    const diskUrl = new URL(disk, location.href).href;
     const scriptUrl = new URL(`${qemuUrl}/qemu-system-x86_64.js`, location.href).href;
     const moduleConfig = {
       pty: slave,
@@ -129,8 +192,16 @@ export class QemuMachine implements Machine {
           mod.FS.mkdir("/boot");
           mod.FS.writeFile("/boot/vmlinuz-virt", kernelData);
           mod.FS.writeFile("/boot/initramfs.img", initrdData);
+          // snapshot=on keeps the guest's disk writes in a temp overlay under /var/tmp.
+          for (const dir of ["/var", "/var/tmp"]) {
+            try {
+              mod.FS.mkdir(dir);
+            } catch {
+              // already exists
+            }
+          }
           mod.FS.mkdir("/disk");
-          mod.FS.createLazyFile("/disk", "disk.img", diskUrl, true, false);
+          mountHttpFile(mod, "/disk", "disk.img", diskUrl, diskSize);
         },
       ],
     };

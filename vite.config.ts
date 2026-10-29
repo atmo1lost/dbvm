@@ -29,6 +29,9 @@ function serveImages(): Plugin {
 
         res.setHeader("Content-Type", MIME[extname(file)] ?? "application/octet-stream");
         res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+        // Worker scripts (QEMU's pthreads) need these on their own response.
+        res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+        res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
         res.setHeader("Cache-Control", "no-cache");
         res.setHeader("Accept-Ranges", "bytes");
         const range = /bytes=(\d+)-(\d*)/.exec(req.headers.range ?? "");
@@ -38,9 +41,11 @@ function serveImages(): Plugin {
           res.statusCode = 206;
           res.setHeader("Content-Range", `bytes ${start}-${end}/${size}`);
           res.setHeader("Content-Length", end - start + 1);
+          if (req.method === "HEAD") return res.end();
           createReadStream(file, { start, end }).pipe(res);
         } else {
           res.setHeader("Content-Length", size);
+          if (req.method === "HEAD") return res.end();
           createReadStream(file).pipe(res);
         }
       });
