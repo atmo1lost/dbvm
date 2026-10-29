@@ -140,7 +140,10 @@ Off by default. Options, in order of effort:
 - [x] `QemuMachine` (`src/machine/QemuMachine.ts`) behind the `Machine` interface, profile `?profile=alpine64`. Canvas renderer, keyboard (set-1 numbers) and absolute pointer, serial console via xterm-pty.
 - [x] COOP/COEP headers in Vite (needed for SharedArrayBuffer/threads; also needed in hosting later).
 - [x] Disk delivery: Emscripten `createLazyFile` (HTTP range reads, 1 MB chunks) + QEMU `snapshot=on`, so guest writes go to an in-memory overlay. **Not yet persistent.**
-- [ ] First boot of the 64-bit desktop in the browser; measure boot time and responsiveness.
+- [~] **First 64-bit boot in the browser (2026-10-29):** QEMU-Wasm starts, the x86_64 kernel boots from the lazily loaded ext4 disk, OpenRC runs, root logs in on tty1 and ttyS0, and **X starts at 1024×768 on our canvas display** (about 2 min from page load). The **absolute mouse works** (virtio-tablet through the input ring). Host CPU ~1–1.6 cores.
+  - Fixed on the way: Emscripten's createLazyFile refuses main-thread sync XHR (custom HTTP-backed disk node instead); `/var/tmp` missing for `snapshot=on`; worker scripts need COEP on their own response; ext4 needs `crc32c` (now loaded, and the disk has no metadata_csum or journal); first-boot package scripts didn't finish under QEMU, so they now run natively in a chroot in CI.
+  - **Open: JWM doesn't come up** (process running, no taskbar, no menu on click). X itself and the cursor work. Next step: start an xterm before JWM and use the guest keyboard to look at JWM's state.
+  - **Open: serial console input** stalls QEMU's main loop once a line is longer than roughly 100–150 characters, even paced. Short commands work. It's in xterm-pty's blocking read path; options are an output-only serial (`-serial file:/dev/tty`) plus the agent on a separate channel.
 - [ ] Guest networking for QEMU (needed for Flathub): a virtio-net backend that speaks to our Wisp relay, or c2w-net-proxy as in ktock's demo.
 - [ ] Agent channel (second serial port) for clipboard/time on QEMU.
 - [ ] Snapshot/instant boot for QEMU (savevm/migration to a file) if feasible. Otherwise optimise cold boot.

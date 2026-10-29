@@ -315,8 +315,16 @@ export class QemuMachine implements Machine {
     return Promise.reject(new Error("saved sessions aren't supported on the QEMU backend yet"));
   }
 
+  // Feed serial input a few bytes at a time: a burst larger than the emulated
+  // UART's 16-byte FIFO makes xterm-pty's blocking read stall QEMU's main loop.
+  private serialQueue = Promise.resolve();
   sendSerial(text: string): void {
-    this.term.input(text, true);
+    for (let i = 0; i < text.length; i += 8) {
+      const piece = text.slice(i, i + 8);
+      this.serialQueue = this.serialQueue
+        .then(() => this.term.input(piece, true))
+        .then(() => new Promise((r) => setTimeout(r, 60)));
+    }
   }
 
   sendAgent(): void {
