@@ -14,6 +14,7 @@
 
 import type { Terminal } from "@xterm/xterm";
 import { openpty } from "xterm-pty";
+import { GUEST_MAC, GuestNetwork, QEMU_NET_URL } from "../net/qemuNet";
 import { Emitter, type Machine, type MachineEvents, type MachineState } from "./Machine";
 
 export interface QemuMachineConfig {
@@ -26,6 +27,8 @@ export interface QemuMachineConfig {
   disk: string;
   cmdline: string;
   memoryMB?: number;
+  /** Wisp relay for guest networking, e.g. "wisp://host/wisp/". */
+  networkRelay?: string;
 }
 
 // Must match WASM_EV_* in ui/wasm.c.
@@ -167,8 +170,12 @@ export class QemuMachine implements Machine {
     this.term.loadAddon(master);
 
     const scriptUrl = new URL(`${qemuUrl}/qemu-system-x86_64.js`, location.href).href;
+    if (this.config.networkRelay) new GuestNetwork(this.config.networkRelay).installWebSocketShim();
+
     const moduleConfig = {
       pty: slave,
+      // Emscripten maps the socket netdev's connect() to a WebSocket at this URL.
+      websocket: { url: QEMU_NET_URL },
       mainScriptUrlOrBlob: scriptUrl,
       locateFile: (path: string) => new URL(`${qemuUrl}/${path}`, location.href).href,
       arguments: [
@@ -188,7 +195,9 @@ export class QemuMachine implements Machine {
         // Output-only serial console: QEMU never reads the terminal, because
         // xterm-pty's blocking read can stall QEMU's whole main loop.
         "-serial", "file:/dev/tty", "-monitor", "none", "-parallel", "none",
-        "-nic", "none",
+        ...(this.config.networkRelay
+          ? ["-netdev", "socket,id=n0,connect=localhost:1", "-device", `virtio-net-pci,netdev=n0,mac=${GUEST_MAC}`]
+          : ["-nic", "none"]),
         "-kernel", "/boot/vmlinuz-virt",
         "-initrd", "/boot/initramfs.img",
         "-append", cmdline,

@@ -53,6 +53,7 @@ export const profiles: Record<string, Profile> = {
     disk: `${images}/alpine64/disk.img`,
     cmdline: "console=ttyS0,115200 quiet video=1024x768 random.trust_cpu=on",
     memoryMB: 768,
+    networkRelay,
   },
   // Stock v86 Buildroot kernel with a busybox initramfs (Phase 0 smoke test).
   buildroot: {

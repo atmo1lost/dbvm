@@ -1,8 +1,21 @@
 #!/bin/sh
-# The QEMU backend's serial console is output-only, so print the desktop's
-# state there by itself once the session has had time to start.
+# The QEMU backend's serial console is output-only, so print the guest's state
+# there by itself: networking early, the desktop once it has had time to start.
 (
-	sleep 150
+	{
+		echo "==== dbvm network check (uptime: $(cut -d' ' -f1 /proc/uptime)s)"
+		ip -4 addr show eth0 2>&1 | grep -E 'inet|does not exist'
+		ip route | head -n 2
+		cat /etc/resolv.conf
+		if wget -q -T 30 -O /dev/null https://dl.flathub.org/repo/summary.idx; then
+			echo "flathub: reachable over HTTPS"
+		else
+			echo "flathub: NOT reachable"
+		fi
+		echo "==== end network check"
+	} > /dev/ttyS0 2>&1
+
+	sleep 120
 	{
 		echo "==== dbvm diagnostics (uptime: $(cut -d' ' -f1 /proc/uptime)s)"
 		for name in Xorg X jwm xterm dbus-daemon; do
@@ -11,10 +24,16 @@
 			done
 		done
 		echo "---- jwm.log"; tail -n 15 /var/log/jwm.log
-		echo "---- Xorg errors"; grep -E '\((EE|WW)\)' /var/log/Xorg.0.log | tail -n 10
-		echo "---- entropy"; cat /proc/sys/kernel/random/entropy_avail; ls /sys/class/misc/hw_random 2>/dev/null && cat /sys/class/misc/hw_random/rng_current
-		echo "---- startx.log"; grep -vE '^\s*\((--|\*\*|==|II)\)' /var/log/startx.log | tail -n 8
+		echo "---- Xorg errors"; grep -E '\((EE|WW)\)' /var/log/Xorg.0.log | grep -v FBIOPUTCMAP | tail -n 10
+		echo "---- entropy"; cat /proc/sys/kernel/random/entropy_avail
 		echo "---- load"; cat /proc/loadavg
 		echo "==== end diagnostics"
+	} > /dev/ttyS0 2>&1
+
+	{
+		echo "==== flatpak check"
+		timeout 600 flatpak remote-ls --system flathub --app --columns=application 2>&1 | head -n 5
+		echo "flatpak remotes: $(flatpak remotes --system --columns=name 2>&1 | tr '\n' ' ')"
+		echo "==== end flatpak check"
 	} > /dev/ttyS0 2>&1
 ) &
